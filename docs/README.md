@@ -61,6 +61,20 @@ The classifier gets up to 8,000 characters from the current user message and 2,0
 
 Tool follow-ups and retries keep the previous route when Pi provides it. Direct requests, such as compaction summaries, prefer Luna. Pi passes the selected thinking level to the chosen chat model and clamps it to the model's supported levels.
 
+## Record routing decisions
+
+Logging is off by default. To collect examples for tuning on macOS or Linux, start Pi with an absolute log path in a private local directory:
+
+```sh
+PI_MODEL_ROUTER_LOG="$HOME/.pi/agent/model-router.jsonl" pi --model openai/auto
+```
+
+Each completed routing decision for a new user turn appends one JSON line. The line includes the timestamp, the same bounded text and image flag used for routing, each classifier's status and available scores, the preferred and selected chat models, and the requested thinking level. It does not include image bytes, tool results, or provider error messages. It does not record tool follow-ups, retries, or compaction requests.
+
+The router creates the file with owner-only permissions. Use an existing directory that other users cannot write to. If a write fails, the router warns and still selects a model. Logging makes no extra network requests.
+
+Prompt text is not redacted. Keep the log out of Git and cloud sync. Review it before you share it or use it for training. Unset `PI_MODEL_ROUTER_LOG` to stop logging. Remove or rotate the file yourself. The log records the router's decision, not the correct tier or the quality of the answer.
+
 ## Classifier comparison
 
 See [Jev vs. Luna Decisions](classifier-evaluation.md) for the test prompts and results.

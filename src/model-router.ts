@@ -1,7 +1,8 @@
 import type { ClassifierContext } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, ModelRouteRequest } from "@earendil-works/pi-coding-agent";
 import { ASTRA, CLASSIFIERS, LUNA, MIN_TIER_PROBABILITY, PROVIDER, SOL, TASK_TIERS } from "./constants.ts";
-import type { UserMessage } from "./types.ts";
+import { logRoutingDecision } from "./routing-log.ts";
+import type { ClassifierAttempt, RoutingInput, UserMessage } from "./types.ts";
 
 function userText(message?: UserMessage): string {
 	const content = message?.content ?? "";
@@ -10,18 +11,21 @@ function userText(message?: UserMessage): string {
 		: content.flatMap((block) => block.type === "text" ? [block.text] : []).join("\n");
 }
 
-async function classifyTask(request: ModelRouteRequest, registry: ExtensionContext["modelRegistry"]): Promise<string> {
-	const users = request.messages.filter((message) => message.role === "user");
+function routingInput(messages: ModelRouteRequest["messages"]): RoutingInput | undefined {
+	const users = messages.filter((message) => message.role === "user");
 	const current = users.at(-1);
-	if (!current) return SOL;
+	if (!current) return;
+	return {
+		task: userText(current).slice(0, 8_000),
+		previousTask: userText(users.at(-2)).slice(0, 2_000),
+		hasImage: Array.isArray(current.content) && current.content.some((block) => block.type === "image"),
+	};
+}
 
-	const options = { signal: request.signal };
+async function classifyTask(input: RoutingInput, registry: ExtensionContext["modelRegistry"], attempts: ClassifierAttempt[], signal?: AbortSignal): Promise<string> {
+	const options = { signal };
 	const context: ClassifierContext = {
-		state: {
-			task: userText(current).slice(0, 8_000),
-			previousTask: userText(users.at(-2)).slice(0, 2_000),
-			hasImage: Array.isArray(current.content) && current.content.some((block) => block.type === "image"),
-		},
+		state: { ...input },
 		questions: {
 			tier: {
 				type: "choice",
@@ -32,20 +36,33 @@ async function classifyTask(request: ModelRouteRequest, registry: ExtensionConte
 	};
 
 	for (const [provider, id] of CLASSIFIERS) {
-		request.signal?.throwIfAborted();
+		signal?.throwIfAborted();
 		const classifiers = await registry.getAvailableOfType("classifier", provider, options);
-		request.signal?.throwIfAborted();
+		signal?.throwIfAborted();
 		const classifier = classifiers.find((model) => model.id === id);
-		if (!classifier) continue;
+		if (!classifier) {
+			attempts.push({ provider, model: id, status: "unavailable" });
+			continue;
+		}
 
 		const result = await registry.classify(classifier, context, options);
-		request.signal?.throwIfAborted();
-		if (result.stopReason === "error") continue;
+		signal?.throwIfAborted();
+		if (result.stopReason === "error") {
+			attempts.push({ provider, model: id, status: "error" });
+			continue;
+		}
 
 		const answer = result.stopReason === "stop" ? result.answers.tier : undefined;
-		if (answer?.type !== "choice" || !((answer.probabilities[answer.choice] ?? 0) >= MIN_TIER_PROBABILITY)) return SOL;
-		if (answer.choice === "luna") return LUNA;
-		if (answer.choice === "astra") return ASTRA;
+		if (answer?.type !== "choice") {
+			attempts.push({ provider, model: id, status: "no-choice" });
+			return SOL;
+		}
+		const { choice, probabilities, confidence } = answer;
+		const accepted = (probabilities[choice] ?? 0) >= MIN_TIER_PROBABILITY;
+		attempts.push({ provider, model: id, status: accepted ? "accepted" : "low-probability", answer: { choice, probabilities, confidence } });
+		if (!accepted) return SOL;
+		if (choice === "luna") return LUNA;
+		if (choice === "astra") return ASTRA;
 		return SOL;
 	}
 	return SOL;
@@ -70,10 +87,19 @@ export default function (pi: ExtensionAPI) {
 			const fallback = find(SOL) ?? find(LUNA);
 			if (!fallback) throw new Error("No OpenAI Sol or Luna chat model is available. Check OpenAI credentials and the Pi model catalog.");
 
-			const id = request.reason === "user"
-				? await classifyTask(request, modelRegistry)
+			const input = request.reason === "user" ? routingInput(request.messages) : undefined;
+			const attempts: ClassifierAttempt[] = [];
+			const id = input ? await classifyTask(input, modelRegistry, attempts, request.signal)
 				: request.reason === "direct" ? LUNA : SOL;
-			return { model: find(id) ?? fallback, thinkingLevel: request.thinkingLevel };
+			const model = find(id) ?? fallback;
+			if (input) {
+				await logRoutingDecision({
+					timestamp: new Date().toISOString(), input, attempts,
+					preferredModel: id, selectedModel: model.id, requestedThinkingLevel: request.thinkingLevel,
+				});
+				request.signal?.throwIfAborted();
+			}
+			return { model, thinkingLevel: request.thinkingLevel };
 		},
 	});
 }

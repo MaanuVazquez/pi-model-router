@@ -3,6 +3,7 @@ export const LUNA = "gpt-6-luna";
 export const SOL = "gpt-6.2-sol";
 export const ASTRA = "gpt-6.2-astra";
 export const MIN_TIER_PROBABILITY = 0.55;
+export const ROUTING_LOG_ENV = "PI_MODEL_ROUTER_LOG";
 export const CLASSIFIERS = [
 	["typesafe", "jev-latest"],
 	[PROVIDER, LUNA],
