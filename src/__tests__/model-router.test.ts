@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ClassifierResult } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, ExtensionVirtualModel, ModelRouteRequest } from "@earendil-works/pi-coding-agent";
-import router from "./model-router.ts";
+import router from "../model-router.ts";
 
 test("routes new turns and keeps the active model through tool calls", async () => {
 	let definition: ExtensionVirtualModel | undefined;

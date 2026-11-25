@@ -9,10 +9,10 @@
     "node": ">=24"
   },
   "pi": {
-    "extensions": ["./model-router.ts"]
+    "extensions": ["./src/model-router.ts"]
   },
   "scripts": {
-    "test": "node --test model-router.test.ts",
+    "test": "node --test src/__tests__/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {

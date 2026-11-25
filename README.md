@@ -25,7 +25,7 @@ pi --model openai/auto
 3. Run the extension once without installing it.
 
    ```sh
-   pi -e ./model-router.ts --model openai/auto
+   pi -e ./src/model-router.ts --model openai/auto
    ```
 
 4. Close that session. Install the package from the same directory.
@@ -73,5 +73,5 @@ Pi supplies the runtime APIs. You do not need to run npm to use the local extens
 npm ci
 npm run typecheck
 npm test
-pi --offline --no-extensions -e ./model-router.ts --list-models openai/auto
+pi --offline --no-extensions -e ./src/model-router.ts --list-models openai/auto
 ```
