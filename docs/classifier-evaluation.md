@@ -21,7 +21,7 @@ Jev's main advantage was that it sent more difficult tasks to Astra. That can in
 
 - Used Pi 1.6.1 to call `openai/gpt-6-luna` and `typesafe/jev-latest`. The OpenAI classifier shares its ID with a chat model but uses a separate API.
 - Used 18 synthetic coding prompts with expected tiers assigned before the calls. The cases include three follow-ups, one image flag, and one prompt that asks the classifier to ignore the routing rules.
-- Sent both models the same task text, previous task text, and image flag. Used the exact tier question in [model-router.ts](src/model-router.ts) and the criteria in [constants.ts](src/constants.ts).
+- Sent both models the same task text, previous task text, and image flag. Used the exact tier question in [src/model-router.ts](../src/model-router.ts) and the criteria in [src/constants.ts](../src/constants.ts).
 - Kept the extension's current rule: accept the chosen tier at 55% probability or higher. Otherwise use Sol.
 - Ran one call per model per prompt. The two calls for each prompt ran in parallel. Call time includes network and provider time, but excludes chat dispatch.
 
