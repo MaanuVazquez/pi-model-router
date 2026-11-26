@@ -8,6 +8,9 @@ export const LUNA = "gpt-6-luna";
 export const SOL = "gpt-6.2-sol";
 export const ASTRA = "gpt-6.2-astra";
 export const MIN_TIER_PROBABILITY = 0.55;
+export const REPORT_CHEAP_PROBABILITY = 0.5;
+export const REPORT_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const REPORT_REVIEW_LIMIT = 10;
 export const ROUTING_LOG_ENV = "PI_MODEL_ROUTER_LOG";
 export const CLASSIFIERS = [
 	["typesafe", "jev-latest"],

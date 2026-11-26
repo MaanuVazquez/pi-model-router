@@ -82,6 +82,14 @@ The router creates the file with owner-only permissions. Use an existing directo
 
 Prompt text is not redacted. Keep the log out of Git and cloud sync. Review it before you share it or use it for training. Unset `PI_MODEL_ROUTER_LOG` to stop logging. Remove or rotate the file yourself. The log records the router's decision, not the correct tier or the quality of the answer.
 
+## Review routing decisions
+
+In an interactive Pi session with logging enabled, run `/router-report` to summarize the last 24 hours. The report shows which models handled new turns and why the router selected the general tier.
+
+The report also counts general routes where cheap was the classifier's top choice and its score was at least 50% but below 55%. This is an estimate of which routes a lower cheap threshold could change. The log does not show whether the cheap-tier model was available at the time or whether it would have completed the task well.
+
+Run `/router-report --review` to show up to ten recent candidates by line number. Open those lines in the private log and mark each task as `cheap enough`, `general needed`, or `unsure` in your own notes. The command does not display prompts, send data, or change the routing rule.
+
 ## Classifier comparison
 
 See [Jev vs. Luna Decisions](classifier-evaluation.md) for the test prompts and results.

@@ -4,6 +4,7 @@ import {
 	CLASSIFIERS, MIN_TIER_PROBABILITY, PROVIDER, ROUTER_DEFAULT_SETUP, ROUTER_ID, ROUTER_PROVIDER, ROUTER_SETUP, ROUTING_TIERS, TASK_TIERS,
 } from "./constants.ts";
 import { logRoutingDecision } from "./routing-log.ts";
+import { registerRoutingReport } from "./routing-report.ts";
 import { loadTierMappings, saveTierMapping } from "./routing-settings.ts";
 import type { ClassifierAttempt, RoutingInput, RoutingTier, TierModelMap, UserMessage } from "./types.ts";
 
@@ -72,6 +73,7 @@ async function classifyTask(input: RoutingInput, registry: ExtensionContext["mod
 }
 
 export default function (pi: ExtensionAPI) {
+	registerRoutingReport(pi);
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx.hasUI) return;
 		try {

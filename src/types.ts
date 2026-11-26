@@ -34,3 +34,7 @@ export interface RoutingLogEntry {
 	selectedModel: string;
 	requestedThinkingLevel: ModelRouteRequest["thinkingLevel"];
 }
+
+export interface RoutingReportEntry extends Pick<RoutingLogEntry, "timestamp" | "attempts" | "selectedTier"> {
+	selectedModel: string;
+}
