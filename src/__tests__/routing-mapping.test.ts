@@ -6,7 +6,7 @@ import { test } from "node:test";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, ExtensionVirtualModel, ModelRouteRequest } from "@earendil-works/pi-coding-agent";
 import router from "../model-router.ts";
 
-test("/model-router saves tier model choices for future routing", async (t) => {
+test("/model-router saves tier models and lets users select or reset the routing classifier", async (t) => {
 	const directory = await mkdtemp(join(tmpdir(), "pi-router-settings-"));
 	const originalDir = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = directory;
@@ -27,6 +27,7 @@ test("/model-router saves tier model choices for future routing", async (t) => {
 	} as unknown as ExtensionAPI);
 	assert.ok(command);
 	assert.ok(definition);
+	const virtualModel = definition;
 
 	const available = [
 		{ provider: "openai", id: "gpt-6-luna" },
@@ -41,17 +42,31 @@ test("/model-router saves tier model choices for future routing", async (t) => {
 			thinking: { provider: "openai", id: "gpt-6.2-astra" },
 		},
 	}), { mode: 0o600 });
+	const jev = { provider: "typesafe", id: "jev-latest" };
+	const custom = { provider: "openai", id: "decisions/test" };
+	let classifiers = [jev, custom];
 	const selections = ["anthropic/claude-haiku"];
+	let classifierOptions: string[] = [];
 	let tierOptions: string[] = [];
 	let notice = "";
 	const ctx = {
-		modelRegistry: { getAvailable: () => available },
+		modelRegistry: {
+			getAvailable: () => available,
+			async getAvailableOfType(type: string, provider?: string) {
+				return type === "classifier" ? classifiers.filter((model) => !provider || model.provider === provider) : [];
+			},
+			classify: async (model: typeof custom) => {
+				const choice = model.id === custom.id ? "cheap" : "thinking";
+				return { stopReason: "stop", answers: { tier: { type: "choice", choice, confidence: 0.9, probabilities: { [choice]: 0.9 } } } };
+			},
+		},
 		ui: {
 			async select(title: string, options: string[]) {
-				if (title === "Choose a routing tier") {
+				if (title === "Choose a routing setting") {
 					tierOptions = options;
 					return options.find((option) => option === "cheap");
 				}
+				if (title === "Choose a classifier") classifierOptions = options;
 				return selections.shift();
 			},
 			notify(message: string) { notice = message; },
@@ -63,6 +78,7 @@ test("/model-router saves tier model choices for future routing", async (t) => {
 		"cheap",
 		"general (google/gemini-standard)",
 		"thinking (openai/gpt-6.2-astra)",
+		"classifier (automatic)",
 	]);
 	assert.match(notice, /Saved anthropic\/claude-haiku for cheap tasks/);
 	assert.match(notice, /Ctrl\+S on @maanuvazquez\/auto/);
@@ -75,20 +91,22 @@ test("/model-router saves tier model choices for future routing", async (t) => {
 	assert.deepEqual(settings.tiers.cheap, { provider: "anthropic", id: "claude-haiku" });
 	assert.deepEqual(settings.tiers.general, { provider: "google", id: "gemini-standard" });
 
-	const routed = await definition.route({
+	selections.push("openai/decisions/test");
+	await command.handler("classifier", ctx);
+	assert.deepEqual(classifierOptions, ["Automatic (Jev, then Luna Decisions)", "typesafe/jev-latest", "openai/decisions/test"]);
+	await command.handler("", ctx);
+	assert.ok(tierOptions.includes("classifier (openai/decisions/test)"));
+
+	const route = () => virtualModel.route({
 		reason: "user", messages: [{ role: "user", content: "Small task", timestamp: 1 }], thinkingLevel: "medium",
-	} as unknown as ModelRouteRequest, {
-		modelRegistry: {
-			getAvailable: () => available,
-			getAvailableOfType: async () => [{ provider: "typesafe", id: "jev-latest" }],
-			classify: async () => ({
-				stopReason: "stop",
-				answers: { tier: { type: "choice", choice: "cheap", confidence: 0.9, probabilities: { cheap: 0.9 } } },
-			}),
-		},
-	} as unknown as ExtensionContext);
-	assert.equal(routed.model.provider, "anthropic");
-	assert.equal(routed.model.id, "claude-haiku");
+	} as unknown as ModelRouteRequest, ctx as ExtensionContext);
+	assert.equal((await route()).model.id, "claude-haiku");
+
+	classifiers = [jev];
+	assert.equal((await route()).model.id, "gemini-standard");
+	selections.push("Automatic (Jev, then Luna Decisions)");
+	await command.handler("classifier", ctx);
+	assert.equal((await route()).model.id, "gpt-6.2-astra");
 
 	await command.handler("unknown", ctx);
 	assert.match(notice, /Usage: \/model-router/);

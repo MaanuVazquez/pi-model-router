@@ -1,12 +1,17 @@
 import type { ClassifierContext } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, ModelRouteRequest } from "@earendil-works/pi-coding-agent";
 import {
-	CLASSIFIERS, MIN_TIER_PROBABILITY, PROVIDER, ROUTER_DEFAULT_SETUP, ROUTER_ID, ROUTER_PROVIDER, ROUTER_SETUP, ROUTING_TIERS, TASK_TIERS,
+	AUTOMATIC_CLASSIFIER, CLASSIFIERS, MIN_TIER_PROBABILITY, PROVIDER, ROUTER_DEFAULT_SETUP,
+	ROUTER_ID, ROUTER_PROVIDER, ROUTER_SETUP, ROUTING_OPTIONS, ROUTING_TIERS, TASK_TIERS,
 } from "./constants.ts";
 import { logRoutingDecision } from "./routing-log.ts";
 import { registerRoutingReport } from "./routing-report.ts";
-import { loadTierMappings, saveTierMapping } from "./routing-settings.ts";
-import type { ClassifierAttempt, RoutingInput, RoutingTier, TierModelMap, UserMessage } from "./types.ts";
+import { loadRoutingSettings, saveRoutingChoice } from "./routing-settings.ts";
+import type { ClassifierAttempt, ModelReference, RoutingInput, RoutingSettings, RoutingTier, UserMessage } from "./types.ts";
+
+function modelLabel(model: ModelReference): string {
+	return `${model.provider}/${model.id}`;
+}
 
 function userText(message?: UserMessage): string {
 	const content = message?.content ?? "";
@@ -26,7 +31,7 @@ function routingInput(messages: ModelRouteRequest["messages"]): RoutingInput | u
 	};
 }
 
-async function classifyTask(input: RoutingInput, registry: ExtensionContext["modelRegistry"], attempts: ClassifierAttempt[], signal?: AbortSignal): Promise<RoutingTier> {
+async function classifyTask(input: RoutingInput, registry: ExtensionContext["modelRegistry"], attempts: ClassifierAttempt[], selected?: ModelReference, signal?: AbortSignal): Promise<RoutingTier> {
 	const options = { signal };
 	const context: ClassifierContext = {
 		state: { ...input },
@@ -39,7 +44,7 @@ async function classifyTask(input: RoutingInput, registry: ExtensionContext["mod
 		},
 	};
 
-	for (const [provider, id] of CLASSIFIERS) {
+	for (const [provider, id] of selected ? [[selected.provider, selected.id]] : CLASSIFIERS) {
 		signal?.throwIfAborted();
 		const classifiers = await registry.getAvailableOfType("classifier", provider, options);
 		signal?.throwIfAborted();
@@ -77,58 +82,66 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx.hasUI) return;
 		try {
-			const mappings = await loadTierMappings();
+			const { tiers: mappings } = await loadRoutingSettings();
 			if (ROUTING_TIERS.some((tier) => !mappings[tier])) ctx.ui.notify(ROUTER_SETUP, "info");
 		} catch {
 			ctx.ui.notify("Could not read saved routing choices. Check model-router.json.", "warning");
 		}
 	});
 	pi.registerCommand("model-router", {
-		description: "Choose the chat model for each automatic routing tier",
+		description: "Choose the routing classifier and tier models",
 		getArgumentCompletions(prefix) {
-			return ROUTING_TIERS
+			return ROUTING_OPTIONS
 				.filter((tier) => tier.startsWith(prefix.toLowerCase()))
 				.map((tier) => ({ value: tier, label: tier }));
 		},
 		async handler(args, ctx) {
-			const tiers = ROUTING_TIERS;
-			const requestedTier = args.trim().toLowerCase();
-			let mappings: TierModelMap;
+			const argument = args.trim().toLowerCase();
+			let settings: RoutingSettings;
 			try {
-				mappings = await loadTierMappings();
+				settings = await loadRoutingSettings();
 			} catch {
 				ctx.ui.notify("Could not read saved routing choices. Check the Pi agent directory permissions.", "warning");
 				return;
 			}
-			const available = ctx.modelRegistry.getAvailable().filter((model) => model.api !== "pi-virtual");
-			const tierOptions = tiers.map((tier) => {
-				const configured = mappings[tier];
-				return configured ? `${tier} (${configured.provider}/${configured.id})` : tier;
+			const labels = ROUTING_OPTIONS.map((option) => {
+				const configured = option === "classifier" ? settings.classifier : settings.tiers[option];
+				if (configured) return `${option} (${modelLabel(configured)})`;
+				return option === "classifier" ? "classifier (automatic)" : option;
 			});
-			const requested = tiers.find((name) => name === requestedTier);
-			const selectedTier = requested ?? (requestedTier ? undefined : await ctx.ui.select("Choose a routing tier", tierOptions));
-			const tierIndex = selectedTier ? tierOptions.indexOf(selectedTier) : -1;
-			const tier = requested ?? (tierIndex >= 0 ? tiers[tierIndex] : undefined);
-			if (!tier) {
-				if (requestedTier) ctx.ui.notify("Usage: /model-router [cheap|general|thinking]", "warning");
+			const index = argument
+				? ROUTING_OPTIONS.findIndex((option) => option === argument)
+				: labels.indexOf(await ctx.ui.select("Choose a routing setting", labels) ?? "");
+			const option = ROUTING_OPTIONS[index];
+			if (!option) {
+				if (argument) ctx.ui.notify("Usage: /model-router [cheap|general|thinking|classifier]", "warning");
 				return;
 			}
-			if (!available.length) {
-				ctx.ui.notify("No chat models are available. Check provider credentials and the Pi model catalog.", "warning");
-				return;
-			}
-			const selected = await ctx.ui.select(`Choose model for ${tier} tasks`, available.map((model) => `${model.provider}/${model.id}`));
-			if (!selected) return;
-			const [provider, ...idParts] = selected.split("/");
-			const id = idParts.join("/");
-			if (!provider || !id || !available.some((model) => model.provider === provider && model.id === id)) {
-				ctx.ui.notify("That model is not available in the current catalog.", "warning");
-				return;
-			}
+
 			try {
-				await saveTierMapping(tier, provider, id);
-				const complete = tiers.every((other) => other === tier || mappings[other]);
-				ctx.ui.notify(`Saved ${provider}/${id} for ${tier} tasks.${complete && !mappings[tier] ? ` ${ROUTER_DEFAULT_SETUP}` : ""}`, "info");
+				const available = option === "classifier"
+					? await ctx.modelRegistry.getAvailableOfType("classifier")
+					: ctx.modelRegistry.getAvailable().filter((model) => model.api !== "pi-virtual");
+				if (option !== "classifier" && !available.length) {
+					ctx.ui.notify("No chat models are available. Check provider credentials and the Pi model catalog.", "warning");
+					return;
+				}
+				const choices = available.map(modelLabel);
+				if (option === "classifier") choices.unshift(AUTOMATIC_CLASSIFIER);
+				const selected = await ctx.ui.select(
+					option === "classifier" ? "Choose a classifier" : `Choose model for ${option} tasks`,
+					choices,
+				);
+				if (!selected) return;
+				const model = available.find((candidate) => modelLabel(candidate) === selected);
+				if (!model && !(option === "classifier" && selected === AUTOMATIC_CLASSIFIER)) return;
+				await saveRoutingChoice(option, model && { provider: model.provider, id: model.id });
+				if (option === "classifier") {
+					ctx.ui.notify(model ? `Saved ${selected} as the routing classifier.` : "Restored automatic classifier selection.", "info");
+					return;
+				}
+				const complete = ROUTING_TIERS.every((tier) => tier === option || settings.tiers[tier]);
+				ctx.ui.notify(`Saved ${selected} for ${option} tasks.${complete && !settings.tiers[option] ? ` ${ROUTER_DEFAULT_SETUP}` : ""}`, "info");
 			} catch {
 				ctx.ui.notify("Could not save the routing choice. Check the Pi agent directory permissions.", "warning");
 			}
@@ -147,12 +160,12 @@ export default function (pi: ExtensionAPI) {
 				return { model: sticky.model, thinkingLevel: sticky.thinkingLevel ?? request.thinkingLevel };
 			}
 
-			const mappings = await loadTierMappings();
+			const { tiers: mappings, classifier } = await loadRoutingSettings();
 			if (ROUTING_TIERS.some((tier) => !mappings[tier])) throw new Error(ROUTER_SETUP);
 			request.signal?.throwIfAborted();
 			const input = request.reason === "user" ? routingInput(request.messages) : undefined;
 			const attempts: ClassifierAttempt[] = [];
-			const tier = input ? await classifyTask(input, modelRegistry, attempts, request.signal)
+			const tier = input ? await classifyTask(input, modelRegistry, attempts, classifier, request.signal)
 				: request.reason === "direct" ? "cheap" : "general";
 			const configured = mappings[tier];
 			if (!configured) throw new Error(ROUTER_SETUP);

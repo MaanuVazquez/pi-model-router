@@ -5,12 +5,17 @@ export type UserMessage = Extract<ModelRouteRequest["messages"][number], { role:
 
 export type RoutingTier = "cheap" | "general" | "thinking";
 
-export interface TierModel {
+export type RoutingOption = RoutingTier | "classifier";
+
+export interface ModelReference {
 	provider: string;
 	id: string;
 }
 
-export type TierModelMap = Partial<Record<RoutingTier, TierModel>>;
+export interface RoutingSettings {
+	tiers: Partial<Record<RoutingTier, ModelReference>>;
+	classifier?: ModelReference;
+}
 
 export interface RoutingInput {
 	task: string;

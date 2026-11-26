@@ -52,6 +52,12 @@ A new installation does not assign any chat models or change your default model.
 
 The tier picker shows saved models in parentheses. To go directly to a tier's model picker, run a command such as `/model-router cheap`. The extension stores your choices in `model-router.json` in the Pi agent directory. They apply to all sessions that use that directory. Existing choices still apply. If you used `openai/auto` before, select the new virtual model in step 2.
 
+## Choose a classifier
+
+Run `/model-router classifier`, or choose **classifier** in the `/model-router` menu. Pi lists available classifier models separately from chat models. The menu shows your saved choice.
+
+Choose **Automatic (Jev, then Luna Decisions)** to restore the default classifier order. If you select a specific classifier, the router uses only that classifier. If it is unavailable or returns an error, the router uses the general tier.
+
 ## Routing policy
 
 | Tier | Tasks |
@@ -62,9 +68,9 @@ The tier picker shows saved models in parentheses. To go directly to a tier's mo
 
 Luna Decisions is a classifier. It does not set the chat model for any tier.
 
-The router tries hosted Jev first. If Jev is unavailable or returns an error, such as a quota or rate limit, the router tries Luna Decisions. If neither classifier is available or both return errors, the router uses the general tier. A successful classifier result below 55% also uses the general tier without a second classifier call. If the model assigned to the selected tier is unavailable, the router asks you to choose another model for that tier. It does not substitute another chat model.
+In automatic mode, the router tries hosted Jev first. If Jev is unavailable or returns an error, such as a quota or rate limit, the router tries Luna Decisions. If neither classifier is available or both return errors, the router uses the general tier. A successful classifier result below 55% also uses the general tier without a second classifier call. If the model assigned to the selected tier is unavailable, the router asks you to choose another model for that tier. It does not substitute another chat model.
 
-The classifier gets up to 8,000 characters from the current user message and 2,000 from the previous user message. It gets an image flag but no image data, tool output, or separate repository files. TypeSafe receives this input when Jev is called. OpenAI receives the routing input if Luna Decisions is called.
+The classifier gets up to 8,000 characters from the current user message and 2,000 from the previous user message. It gets an image flag but no image data, tool output, or separate repository files. The classifier provider receives this input. In automatic mode, TypeSafe receives it when Jev is called, and OpenAI receives it when Luna Decisions is called.
 
 Tool follow-ups and retries keep the previous route when Pi provides it. Direct requests, such as compaction summaries, prefer the cheap tier. Pi passes the selected thinking level to the chosen chat model and clamps it to the model's supported levels.
 
