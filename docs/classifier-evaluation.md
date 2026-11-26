@@ -2,6 +2,8 @@
 
 **Recommendation:** Use Jev if sending prompt text to TypeSafe is acceptable and a TypeSafe key is available. Keep Luna Decisions when the router must use only OpenAI. The extension now tries Jev first and uses Luna Decisions if Jev is unavailable or returns an error.
 
+These results use the former tier labels: `luna`, `sol`, and `astra`. They map to the current `cheap`, `general`, and `thinking` tiers. The classifier results are historical and have not been rerun with the new labels.
+
 ## Results
 
 | Measure | Luna Decisions | Jev |

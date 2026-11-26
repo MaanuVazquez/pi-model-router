@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -12,16 +12,22 @@ test("routes new turns, keeps the active model, and logs decisions only when ena
 	const directory = await mkdtemp(join(tmpdir(), "pi-model-router-"));
 	const logPath = join(directory, "routes.jsonl");
 	const originalLogPath = process.env.PI_MODEL_ROUTER_LOG;
+	const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = directory;
 	delete process.env.PI_MODEL_ROUTER_LOG;
 	t.after(async () => {
 		if (originalLogPath === undefined) delete process.env.PI_MODEL_ROUTER_LOG;
 		else process.env.PI_MODEL_ROUTER_LOG = originalLogPath;
+		if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
 		await rm(directory, { recursive: true, force: true });
 	});
 	let definition: ExtensionVirtualModel | undefined;
 	router({
+		on() {},
+		registerCommand() {},
 		registerVirtualModel(route: ExtensionVirtualModel) { definition = route; },
-	} as ExtensionAPI);
+	} as unknown as ExtensionAPI);
 	assert.ok(definition);
 
 	const available = ["gpt-6-luna", "gpt-6.2-sol", "gpt-6.2-astra"].map((id) => ({ provider: "openai", id }));
@@ -55,16 +61,26 @@ test("routes new turns, keeps the active model, and logs decisions only when ena
 			}
 			return lunaError
 				? { stopReason: "error", answers: {} }
-				: { stopReason: "stop", answers: { tier: { type: "choice", choice: "luna", probabilities: { luna: 0.9 } } } };
+				: { stopReason: "stop", answers: { tier: { type: "choice", choice: "cheap", probabilities: { cheap: 0.9 } } } };
 		},
 	};
 	const ctx = { modelRegistry: registry } as unknown as ExtensionContext;
 
-	answer = { type: "choice", choice: "luna", confidence: 0.95, probabilities: { luna: 0.95 } };
+	await assert.rejects(async () => route(request as ModelRouteRequest, ctx), /Run \/model-router to set/);
+	assert.deepEqual(calls, []);
+	await writeFile(join(directory, "model-router.json"), JSON.stringify({
+		tiers: {
+			cheap: { provider: "openai", id: "gpt-6-luna" },
+			general: { provider: "openai", id: "gpt-6.2-sol" },
+			thinking: { provider: "openai", id: "gpt-6.2-astra" },
+		},
+	}), { mode: 0o600 });
+
+	answer = { type: "choice", choice: "cheap", confidence: 0.95, probabilities: { cheap: 0.95 } };
 	assert.equal((await route(request as ModelRouteRequest, ctx)).model.id, "gpt-6-luna");
 	process.env.PI_MODEL_ROUTER_LOG = logPath;
 
-	answer = { type: "choice", choice: "astra", confidence: 0.35, probabilities: { astra: 0.57, sol: 0.35, luna: 0.08 } };
+	answer = { type: "choice", choice: "thinking", confidence: 0.35, probabilities: { thinking: 0.57, general: 0.35, cheap: 0.08 } };
 	const deep = await route(request as ModelRouteRequest, ctx);
 	assert.equal(deep.model.id, "gpt-6.2-astra");
 
@@ -75,7 +91,7 @@ test("routes new turns, keeps the active model, and logs decisions only when ena
 	assert.equal(followUp.thinkingLevel, "medium");
 	assert.deepEqual(calls, ["typesafe", "typesafe"]);
 
-	answer.probabilities.astra = 0.5;
+	answer.probabilities.thinking = 0.5;
 	assert.equal((await route(request as ModelRouteRequest, ctx)).model.id, "gpt-6.2-sol");
 	assert.deepEqual(calls.splice(0), ["typesafe", "typesafe", "typesafe"]);
 
@@ -92,12 +108,17 @@ test("routes new turns, keeps the active model, and logs decisions only when ena
 	assert.deepEqual(entries.map((entry) => entry.selectedModel), [
 		"gpt-6.2-astra", "gpt-6.2-sol", "gpt-6-luna", "gpt-6.2-sol",
 	]);
+	assert.deepEqual(entries.map((entry) => entry.selectedTier), ["thinking", "general", "cheap", "general"]);
 	assert.deepEqual(entries[0].input, { task: "r".repeat(8_000), previousTask: "p".repeat(2_000), hasImage: true });
-	assert.equal(entries[0].attempts[0].answer?.probabilities.astra, 0.57);
+	assert.equal(entries[0].attempts[0].answer?.probabilities.thinking, 0.57);
 	assert.equal(entries[1].attempts[0].status, "low-probability");
 	assert.deepEqual(entries[2].attempts.map(({ provider, status }) => [provider, status]), [
 		["typesafe", "error"], ["openai", "accepted"],
 	]);
 	assert.doesNotMatch(log, /private-image-bytes|token quota exceeded|excluded .* text/);
 	assert.equal((await stat(logPath)).mode & 0o777, 0o600);
+
+	available.splice(0, 1);
+	await assert.rejects(async () => route({ ...request, reason: "direct" } as ModelRouteRequest, ctx),
+		/openai\/gpt-6-luna is unavailable.*\/model-router cheap/);
 });

@@ -3,6 +3,15 @@ import type { ModelRouteRequest } from "@earendil-works/pi-coding-agent";
 
 export type UserMessage = Extract<ModelRouteRequest["messages"][number], { role: "user" }>;
 
+export type RoutingTier = "cheap" | "general" | "thinking";
+
+export interface TierModel {
+	provider: string;
+	id: string;
+}
+
+export type TierModelMap = Partial<Record<RoutingTier, TierModel>>;
+
 export interface RoutingInput {
 	task: string;
 	previousTask: string;
@@ -18,6 +27,7 @@ export interface ClassifierAttempt {
 
 export interface RoutingLogEntry {
 	timestamp: string;
+	selectedTier?: RoutingTier;
 	input: RoutingInput;
 	attempts: ClassifierAttempt[];
 	preferredModel: string;

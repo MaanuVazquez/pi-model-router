@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This repository contains a Pi extension that selects an OpenAI chat model for each new user turn. The virtual model is `openai/auto`.
+This repository contains a Pi extension that selects a configured chat model for each new user turn. The virtual model is `@maanuvazquez/auto`.
 
-The router asks the Jev classifier first. It uses Luna Decisions if Jev is missing or fails. It accepts a tier only when its probability is at least 55%. Otherwise, it selects Sol. Read `docs/README.md` for setup and `docs/classifier-evaluation.md` for classifier results.
+The router asks the Jev classifier first. It uses Luna Decisions if Jev is missing or fails. It accepts a tier only when its probability is at least 55%. Otherwise, it selects the general tier. Set the three tier models with `/model-router` before using the virtual model. Read `docs/README.md` for setup and `docs/classifier-evaluation.md` for classifier results.
 
 ## Project layout
 
@@ -30,7 +30,7 @@ Run checks before you finish a code change:
 ```sh
 npm test
 npm run typecheck
-pi --offline --no-extensions -e ./src/model-router.ts --list-models openai/auto
+pi --offline --no-extensions -e ./src/model-router.ts --list-models @maanuvazquez/auto
 git diff --check
 ```
 
